@@ -267,6 +267,8 @@ func resourceMongoDBAtlasNetworkPeeringRead(d *schema.ResourceData, meta interfa
 	ids := decodeStateID(d.Id())
 	projectID := ids["project_id"]
 	peerID := ids["peer_id"]
+	containerID := d.Get("container_id").(string)
+	providerName := d.Get("provider_name").(string)
 
 	peer, resp, err := conn.Peers.Get(context.Background(), projectID, peerID)
 	if err != nil {
@@ -277,9 +279,19 @@ func resourceMongoDBAtlasNetworkPeeringRead(d *schema.ResourceData, meta interfa
 		return fmt.Errorf(errorPeersRead, peerID, err)
 	}
 
-	//Workaround until fix.
-	if peer.AccepterRegionName != "" {
-		if err := d.Set("accepter_region_name", peer.AccepterRegionName); err != nil {
+	accepterRegionName := peer.AccepterRegionName
+	if accepterRegionName != "" && providerName == "AWS" {
+		// If accepterRegionName is empty we assume that it's in the same region as the Atlas VPC as per the documentation.
+		// For more information see: https://docs.atlas.mongodb.com/reference/api/vpc-get-connection/.
+		if container, _, err := conn.Containers.Get(context.Background(), projectID, containerID); err == nil {
+			if container.RegionName != "" {
+				accepterRegionName = container.RegionName
+			}
+		}
+	}
+
+	if accepterRegionName != "" {
+		if err := d.Set("accepter_region_name", accepterRegionName); err != nil {
 			return fmt.Errorf("error setting `accepter_region_name` for Network Peering Connection (%s): %s", peerID, err)
 		}
 	}
